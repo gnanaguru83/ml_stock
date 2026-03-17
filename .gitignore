@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+venv/
+stock_env/
+
+benchmark_repo/
+
+*.h5
+*.png
+*.csv
+
+* - Copy.py
+* - Copy.csv
+* - Copy.h5
