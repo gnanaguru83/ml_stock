@@ -38,8 +38,10 @@ def add_technical_indicators(data: pd.DataFrame) -> pd.DataFrame:
     """Add moving averages and RSI to the stock data."""
 
     enriched = data.copy()
+    # Moving averages help visualize overall price trend more smoothly.
     enriched["MA20"] = enriched["Close"].rolling(window=20).mean()
     enriched["MA50"] = enriched["Close"].rolling(window=50).mean()
+    # RSI is a momentum indicator commonly used for overbought/oversold analysis.
     enriched["RSI"] = calculate_rsi(enriched["Close"])
     return enriched
 
@@ -48,6 +50,7 @@ def add_technical_indicators(data: pd.DataFrame) -> pd.DataFrame:
 def load_analysis(symbol: str) -> StockArtifacts:
     """Cache training results so the dashboard feels responsive."""
 
+    # Streamlit caching avoids retraining the same model repeatedly during one session.
     return train_and_evaluate(symbol=symbol, start_date=START_DATE, save_outputs=False)
 
 
@@ -86,6 +89,7 @@ def plot_rsi(data: pd.DataFrame, symbol: str) -> None:
 def plot_actual_vs_predicted(predictions_df: pd.DataFrame, symbol: str) -> None:
     """Render model predictions against actual test values."""
 
+    # This plot is the core regression visualization: real values versus model estimates.
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.plot(predictions_df["Date"], predictions_df["Actual"], label="Actual", linewidth=2)
     ax.plot(predictions_df["Date"], predictions_df["Predicted"], label="Predicted", linewidth=2)
@@ -103,6 +107,7 @@ def plot_recent_actual_vs_predicted(
 ) -> None:
     """Render a zoomed-in view so prediction closeness is easier to inspect."""
 
+    # A zoomed recent window makes short-term prediction quality easier to inspect visually.
     recent_df = predictions_df.tail(recent_points)
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.plot(recent_df["Date"], recent_df["Actual"], label="Actual", linewidth=2)
@@ -119,6 +124,7 @@ def plot_recent_actual_vs_predicted(
 def get_trade_signal(predictions_df: pd.DataFrame) -> tuple[str, float, float]:
     """Generate a simple buy/sell signal from the latest prediction."""
 
+    # This is a simple rule-based signal, not a full trading strategy.
     last_row = predictions_df.iloc[-1]
     actual_price = float(last_row["Actual"])
     predicted_price = float(last_row["Predicted"])
@@ -136,6 +142,7 @@ def save_dashboard_outputs(artifacts: StockArtifacts) -> None:
 def render_metrics(metrics: dict[str, float]) -> None:
     """Display model metrics in a compact layout."""
 
+    # These metrics summarize regression quality and direction prediction quality.
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("MAE", f"{metrics['mae']:.2f}")
     col2.metric("RMSE", f"{metrics['rmse']:.2f}")

@@ -54,19 +54,23 @@ def add_technical_features(data: pd.DataFrame) -> pd.DataFrame:
     featured["Volume"] = featured.get("Volume", pd.Series(index=featured.index, dtype=float))
     featured["Volume"] = pd.to_numeric(featured["Volume"], errors="coerce").ffill().bfill()
 
+    # Moving averages smooth short-term noise and help the model see trend direction.
     featured["MA20"] = featured["Close"].rolling(window=20).mean()
     featured["MA50"] = featured["Close"].rolling(window=50).mean()
 
+    # MACD captures momentum by comparing fast and slow exponential moving averages.
     ema_12 = featured["Close"].ewm(span=12, adjust=False).mean()
     ema_26 = featured["Close"].ewm(span=26, adjust=False).mean()
     featured["MACD"] = ema_12 - ema_26
 
+    # RSI estimates whether recent price movement is relatively strong or weak.
     delta = featured["Close"].diff()
     gains = delta.clip(lower=0).rolling(window=14).mean()
     losses = (-delta.clip(upper=0)).rolling(window=14).mean()
     rs = gains / losses.replace(0, np.nan)
     featured["RSI"] = 100 - (100 / (1 + rs))
 
+    # Return gives the day-to-day percentage change, which helps capture local movement.
     featured["Return"] = featured["Close"].pct_change()
     featured = featured.ffill().bfill().dropna()
     return featured
@@ -126,6 +130,7 @@ def create_sequences(
 
     x_data, y_data = [], []
 
+    # Sliding-window sequence modeling: use the previous 60 days to predict the next day.
     for index in range(window_size, len(scaled_features)):
         x_data.append(scaled_features[index - window_size : index])
         y_data.append(scaled_target[index, 0])
@@ -153,6 +158,7 @@ def prepare_datasets(
     """Scale data, build sequences, and split into train/validation/test sets."""
 
     feature_columns = ["Close", "Volume", "MA20", "MA50", "MACD", "RSI", "Return"]
+    # MinMax scaling keeps features in a common range so gradient-based training is stable.
     feature_scaler = MinMaxScaler(feature_range=(0, 1))
     target_scaler = MinMaxScaler(feature_range=(0, 1))
 
@@ -164,6 +170,7 @@ def prepare_datasets(
     )
     sequence_dates = data.index[window_size:]
 
+    # Time-series data must be split chronologically to avoid leaking future information.
     train_end = int(len(x_all) * 0.7)
     val_end = train_end + int(len(x_all) * 0.15)
 
@@ -193,17 +200,22 @@ def build_lstm_model(window_size: int = WINDOW_SIZE, num_features: int = 7) -> M
     """Create a bidirectional LSTM + Attention architecture for sequence prediction."""
 
     inputs = Input(shape=(window_size, num_features))
+    # Bidirectional LSTM learns temporal patterns from both directions within each window.
     x = Bidirectional(LSTM(64, return_sequences=True))(inputs)
+    # Dropout is a regularization technique that reduces overfitting.
     x = Dropout(0.2)(x)
 
     # Self-attention helps the model focus on the most informative timesteps.
     attention_output = Attention()([x, x])
 
+    # The second LSTM compresses the attended sequence into a final learned representation.
     x = LSTM(64)(attention_output)
     x = Dropout(0.2)(x)
+    # Dense is the regression output layer that predicts the next closing price.
     outputs = Dense(1)(x)
 
     model = Model(inputs=inputs, outputs=outputs)
+    # Adam performs adaptive gradient updates; Huber loss is robust to large errors/outliers.
     model.compile(optimizer=Adam(learning_rate=0.001), loss="huber")
     return model
 
@@ -267,6 +279,7 @@ def find_best_blend_weight(
     best_alpha = 1.0
     best_rmse = float("inf")
 
+    # Simple model blending combines deep learning predictions with a naive baseline.
     for alpha in np.linspace(0.0, 1.0, 21):
         blended = alpha * model_predictions + (1.0 - alpha) * baseline_predictions
         rmse = math.sqrt(mean_squared_error(actual_values, blended))
@@ -275,6 +288,47 @@ def find_best_blend_weight(
             best_alpha = float(alpha)
 
     return best_alpha
+
+
+def train_single_model(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    x_val: np.ndarray,
+    y_val: np.ndarray,
+    num_features: int,
+    epochs: int,
+    batch_size: int,
+    seed: int,
+    verbose: int = 0,
+) -> tuple[Model, object]:
+    """Train one model instance with consistent callbacks."""
+
+    set_random_seed(seed)
+    model = build_lstm_model(window_size=x_train.shape[1], num_features=num_features)
+    # Early stopping prevents unnecessary training once validation performance stops improving.
+    early_stopping = EarlyStopping(
+        monitor="val_loss",
+        patience=5,
+        restore_best_weights=True,
+    )
+    # ReduceLROnPlateau lowers the learning rate when progress slows down.
+    reduce_lr = ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.5,
+        patience=2,
+        min_lr=1e-5,
+        verbose=verbose,
+    )
+    history = model.fit(
+        x_train,
+        y_train,
+        validation_data=(x_val, y_val),
+        epochs=epochs,
+        batch_size=batch_size,
+        verbose=verbose,
+        callbacks=[early_stopping, reduce_lr],
+    )
+    return model, history
 
 
 def plot_actual_vs_predicted(
@@ -343,35 +397,23 @@ def train_and_evaluate(
         feature_columns,
     ) = prepare_datasets(data, window_size=window_size)
 
+    # Ensemble learning averages multiple runs to reduce variance in predictions.
     models: list[Model] = []
     histories: list[object] = []
     validation_predictions = []
     test_predictions = []
 
     for model_index, seed in enumerate(ensemble_seeds, start=1):
-        set_random_seed(seed)
-        model = build_lstm_model(window_size=window_size, num_features=len(feature_columns))
-        early_stopping = EarlyStopping(
-            monitor="val_loss",
-            patience=5,
-            restore_best_weights=True,
-        )
-        reduce_lr = ReduceLROnPlateau(
-            monitor="val_loss",
-            factor=0.5,
-            patience=2,
-            min_lr=1e-5,
-            verbose=1,
-        )
-
-        history = model.fit(
-            x_train,
-            y_train,
-            validation_data=(x_val, y_val),
+        model, history = train_single_model(
+            x_train=x_train,
+            y_train=y_train,
+            x_val=x_val,
+            y_val=y_val,
+            num_features=len(feature_columns),
             epochs=epochs,
             batch_size=batch_size,
+            seed=seed,
             verbose=1 if model_index == 1 else 0,
-            callbacks=[early_stopping, reduce_lr],
         )
 
         histories.append(history)
@@ -386,6 +428,7 @@ def train_and_evaluate(
     validation_model_values = target_scaler.inverse_transform(mean_validation_predictions)
     predicted_values = target_scaler.inverse_transform(mean_test_predictions)
 
+    # Compare the learned model to a persistence baseline and blend them if it improves validation RMSE.
     validation_baseline = get_persistence_baseline(x_val, target_scaler)
     test_baseline = get_persistence_baseline(x_test, target_scaler)
     blend_weight = find_best_blend_weight(
