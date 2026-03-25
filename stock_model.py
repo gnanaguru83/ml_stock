@@ -7,6 +7,7 @@ This module can be imported by the Streamlit dashboard or run directly:
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
@@ -83,15 +84,39 @@ def download_stock_data(
 ) -> pd.DataFrame:
     """Download stock data with yfinance and keep a clean Close series."""
 
-    data = yf.download(
-        symbol,
-        start=start_date,
-        end=end_date,
-        progress=False,
-        auto_adjust=False,
-    )
+    data = pd.DataFrame()
+    last_error: Exception | None = None
+
+    # Yahoo sometimes returns transient NoneType errors; retry before failing.
+    for attempt in range(1, 4):
+        try:
+            data = yf.download(
+                symbol,
+                start=start_date,
+                end=end_date,
+                progress=False,
+                auto_adjust=False,
+                threads=False,
+            )
+            if not data.empty:
+                break
+        except Exception as exc:
+            last_error = exc
+        time.sleep(1.5 * attempt)
+
+    # Fallback path using Ticker.history often works when yf.download fails.
+    if data.empty:
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(start=start_date, end=end_date, auto_adjust=False)
+        except Exception as exc:
+            last_error = exc
 
     if data.empty:
+        if last_error is not None:
+            raise ValueError(
+                f"No data returned for symbol '{symbol}'. Last download error: {last_error}"
+            ) from last_error
         raise ValueError(f"No data returned for symbol '{symbol}'.")
 
     if isinstance(data.columns, pd.MultiIndex):
