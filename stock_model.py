@@ -12,25 +12,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
 
+import os
+
+# Must be set before importing keras — tells keras to use PyTorch as compute backend.
+os.environ["KERAS_BACKEND"] = "torch"
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yfinance as yf
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
-os = __import__("os")
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
-
-try:
-    from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-    from tensorflow.keras.layers import Attention, Bidirectional, Dense, Dropout, Input, LSTM
-    from tensorflow.keras.models import Model
-    from tensorflow.keras.optimizers import Adam
-except ImportError:
-    from keras.callbacks import EarlyStopping, ReduceLROnPlateau
-    from keras.layers import Attention, Bidirectional, Dense, Dropout, Input, LSTM
-    from keras.models import Model
-    from keras.optimizers import Adam
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from keras.layers import Attention, Bidirectional, Dense, Dropout, Input, LSTM
+from keras.models import Model
+from keras.optimizers import Adam
 
 
 WINDOW_SIZE = 60
@@ -289,15 +285,11 @@ def set_random_seed(seed: int) -> None:
     """Set seeds for repeatable model training."""
 
     import random
+    import keras
 
     random.seed(seed)
     np.random.seed(seed)
-    try:
-        import tensorflow as tf
-        tf.random.set_seed(seed)
-    except ImportError:
-        import keras
-        keras.utils.set_random_seed(seed)
+    keras.utils.set_random_seed(seed)
 
 
 def get_persistence_baseline(sequence_batch: np.ndarray, target_scaler: MinMaxScaler) -> np.ndarray:
