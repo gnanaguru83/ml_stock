@@ -18,10 +18,19 @@ import pandas as pd
 import yfinance as yf
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.layers import Attention, Bidirectional, Dense, Dropout, Input, LSTM
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
+os = __import__("os")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+
+try:
+    from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+    from tensorflow.keras.layers import Attention, Bidirectional, Dense, Dropout, Input, LSTM
+    from tensorflow.keras.models import Model
+    from tensorflow.keras.optimizers import Adam
+except ImportError:
+    from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+    from keras.layers import Attention, Bidirectional, Dense, Dropout, Input, LSTM
+    from keras.models import Model
+    from keras.optimizers import Adam
 
 
 WINDOW_SIZE = 60
@@ -280,11 +289,15 @@ def set_random_seed(seed: int) -> None:
     """Set seeds for repeatable model training."""
 
     import random
-    import tensorflow as tf
 
     random.seed(seed)
     np.random.seed(seed)
-    tf.random.set_seed(seed)
+    try:
+        import tensorflow as tf
+        tf.random.set_seed(seed)
+    except ImportError:
+        import keras
+        keras.utils.set_random_seed(seed)
 
 
 def get_persistence_baseline(sequence_batch: np.ndarray, target_scaler: MinMaxScaler) -> np.ndarray:
@@ -477,7 +490,7 @@ def train_and_evaluate(
     metrics = calculate_metrics(actual_values, predicted_values)
 
     if save_outputs:
-        model.save(MODEL_PATH)
+        model.save(str(MODEL_PATH))
         predictions_df.to_csv(PREDICTIONS_PATH, index=False)
         plot_actual_vs_predicted(predictions_df, symbol=symbol)
         plot_recent_actual_vs_predicted(predictions_df, symbol=symbol)
